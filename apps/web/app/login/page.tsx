@@ -65,7 +65,12 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow-md">
         <h1 className="mb-2 text-3xl font-bold">Welcome Back</h1>
-
+        <a
+  href="/"
+  className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900"
+>
+  ← Back to Home
+</a>
         <p className="mb-6 text-gray-600">
           Login to your LMS account
         </p>
