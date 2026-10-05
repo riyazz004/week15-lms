@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 type Course = {
   id: string;
@@ -22,11 +22,13 @@ type Progress = {
 };
 export default function StudentCoursePage() {
   const params = useParams();
+  const router = useRouter();
   const courseId = params.id as string;
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [progress, setProgress] = useState<Progress[]>([]);
-  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
+  const [selectedLesson, setSelectedLesson] =
+    useState<Lesson | null>(null);
   const [loading, setLoading] = useState(true);
   const [markingComplete, setMarkingComplete] = useState(false);
   useEffect(() => {
@@ -39,7 +41,7 @@ export default function StudentCoursePage() {
         setLoading(false);
         return;
       }
-      // Check if the student is enrolled
+      // Check enrollment
       const { data: enrollment, error: enrollmentError } =
         await supabase
           .from("enrollments")
@@ -48,7 +50,10 @@ export default function StudentCoursePage() {
           .eq("course_id", courseId)
           .maybeSingle();
       if (enrollmentError) {
-        console.error("Enrollment error:", enrollmentError);
+        console.error(
+          "Enrollment error:",
+          enrollmentError.message
+        );
         setLoading(false);
         return;
       }
@@ -64,12 +69,15 @@ export default function StudentCoursePage() {
           .eq("id", courseId)
           .single();
       if (courseError) {
-        console.error("Course error:", courseError);
+        console.error(
+          "Course error:",
+          courseError.message
+        );
         setLoading(false);
         return;
       }
       setCourse(courseData);
-      // Get lessons
+      // Get lessons for THIS course
       const { data: lessonsData, error: lessonsError } =
         await supabase
           .from("lessons")
@@ -77,23 +85,28 @@ export default function StudentCoursePage() {
           .eq("course_id", courseId)
           .order("position", { ascending: true });
       if (lessonsError) {
-        console.error("Lessons error:", lessonsError);
+        console.error(
+          "Lessons error:",
+          lessonsError.message
+        );
       } else {
         const loadedLessons = (lessonsData || []) as Lesson[];
-              setLessons(lessonsData ?? []);
-
-        if (lessonsData && lessonsData.length > 0) {
+        setLessons(loadedLessons);
+                if (lessonsData && lessonsData.length > 0) {
           setSelectedLesson(lessonsData[0]);
         }
       }
-      // Get student's lesson progress
+      // Get student's progress
       const { data: progressData, error: progressError } =
         await supabase
           .from("lesson_progress")
           .select("lesson_id, completed")
           .eq("student_id", user.id);
       if (progressError) {
-        console.error("Progress error:", progressError);
+        console.error(
+          "Progress error:",
+          progressError.message
+        );
       } else {
         setProgress((progressData || []) as Progress[]);
       }
@@ -104,7 +117,8 @@ export default function StudentCoursePage() {
   const isCompleted = (lessonId: string) => {
     return progress.some(
       (item) =>
-        item.lesson_id === lessonId && item.completed === true
+        item.lesson_id === lessonId &&
+        item.completed === true
     );
   };
   const handleMarkComplete = async () => {
@@ -120,15 +134,20 @@ export default function StudentCoursePage() {
       return;
     }
     // Check if progress already exists
-    const { data: existingProgress, error: existingError } =
-      await supabase
-        .from("lesson_progress")
-        .select("id")
-        .eq("student_id", user.id)
-        .eq("lesson_id", selectedLesson.id)
-        .maybeSingle();
+    const {
+      data: existingProgress,
+      error: existingError,
+    } = await supabase
+      .from("lesson_progress")
+      .select("id")
+      .eq("student_id", user.id)
+      .eq("lesson_id", selectedLesson.id)
+      .maybeSingle();
     if (existingError) {
-      console.error("Progress check error:", existingError);
+      console.error(
+        "Progress check error:",
+        existingError.message
+      );
       alert(existingError.message);
       setMarkingComplete(false);
       return;
@@ -143,13 +162,16 @@ export default function StudentCoursePage() {
         })
         .eq("id", existingProgress.id);
       if (error) {
-        console.error("Progress update error:", error);
+        console.error(
+          "Progress update error:",
+          error.message
+        );
         alert(error.message);
         setMarkingComplete(false);
         return;
       }
     } else {
-      // Create new progress
+      // Create progress
       const { error } = await supabase
         .from("lesson_progress")
         .insert({
@@ -159,7 +181,10 @@ export default function StudentCoursePage() {
           completed_at: new Date().toISOString(),
         });
       if (error) {
-        console.error("Progress insert error:", error);
+        console.error(
+          "Progress insert error:",
+          error.message
+        );
         alert(error.message);
         setMarkingComplete(false);
         return;
@@ -190,11 +215,93 @@ export default function StudentCoursePage() {
     });
     setMarkingComplete(false);
   };
+  /*
+   * Convert YouTube URL to embed URL.
+   */
+  const getYouTubeEmbedUrl = (url: string) => {
+    try {
+      const cleanUrl = url.trim();
+      // youtu.be/VIDEO_ID
+      if (cleanUrl.includes("youtu.be/")) {
+        const videoId = cleanUrl
+          .split("youtu.be/")[1]
+          ?.split(/[?&]/)[0];
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+      }
+      // youtube.com/watch?v=VIDEO_ID
+      if (
+        cleanUrl.includes("youtube.com/watch") ||
+        cleanUrl.includes("youtube-nocookie.com/watch")
+      ) {
+        const urlObject = new URL(
+          cleanUrl.startsWith("http")
+            ? cleanUrl
+            : `https://${cleanUrl}`
+        );
+        const videoId = urlObject.searchParams.get("v");
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+      }
+      // youtube.com/embed/VIDEO_ID
+      if (
+        cleanUrl.includes("youtube.com/embed/")
+      ) {
+        const videoId = cleanUrl
+          .split("youtube.com/embed/")[1]
+          ?.split(/[?&]/)[0];
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+      }
+      // youtube.com/shorts/VIDEO_ID
+      if (
+        cleanUrl.includes("youtube.com/shorts/")
+      ) {
+        const videoId = cleanUrl
+          .split("youtube.com/shorts/")[1]
+          ?.split(/[?&]/)[0];
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+      }
+      // youtube.com/live/VIDEO_ID
+      if (
+        cleanUrl.includes("youtube.com/live/")
+      ) {
+        const videoId = cleanUrl
+          .split("youtube.com/live/")[1]
+          ?.split(/[?&]/)[0];
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}`;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error(
+        "YouTube URL conversion error:",
+        error
+      );
+      return null;
+    }
+  };
+  const isYouTubeUrl = (url: string) => {
+    const lowerUrl = url.toLowerCase();
+    return (
+      lowerUrl.includes("youtube.com") ||
+      lowerUrl.includes("youtu.be") ||
+      lowerUrl.includes("youtube-nocookie.com")
+    );
+  };
   if (loading) {
     return (
       <main className="min-h-screen bg-gray-50 px-6 py-10">
         <div className="mx-auto max-w-6xl">
-          <p className="text-gray-600">Loading course...</p>
+          <p className="text-gray-600">
+            Loading course...
+          </p>
         </div>
       </main>
     );
@@ -203,6 +310,14 @@ export default function StudentCoursePage() {
     return (
       <main className="min-h-screen bg-gray-50 px-6 py-10">
         <div className="mx-auto max-w-6xl">
+          <button
+            onClick={() =>
+              router.push("/dashboard/student/courses")
+            }
+            className="mb-6 inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+          >
+            ← Back to My Courses
+          </button>
           <div className="rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-gray-200">
             <div className="text-5xl">🔒</div>
             <h1 className="mt-4 text-xl font-semibold text-gray-900">
@@ -211,13 +326,6 @@ export default function StudentCoursePage() {
             <p className="mt-2 text-gray-600">
               You need to be enrolled in this course to access it.
             </p>
-            {/* Back Button */}
-            <a
-              href="/dashboard/student/courses"
-              className="mt-6 inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
-            >
-              ← Back to My Courses
-            </a>
           </div>
         </div>
       </main>
@@ -228,21 +336,45 @@ export default function StudentCoursePage() {
   ).length;
   const progressPercentage =
     lessons.length > 0
-      ? Math.round((completedCount / lessons.length) * 100)
+      ? Math.round(
+          (completedCount / lessons.length) * 100
+        )
       : 0;
-  // Course is completed when every lesson is completed
   const courseCompleted =
-    lessons.length > 0 && completedCount === lessons.length;
+    lessons.length > 0 &&
+    completedCount === lessons.length;
+  /*
+   * Get the video URL from the currently selected lesson.
+   */
+  const selectedVideoUrl =
+    selectedLesson?.video_url?.trim() || null;
+  /*
+   * Convert the selected lesson's YouTube URL
+   * into a YouTube embed URL.
+   */
+  const youtubeEmbedUrl = selectedVideoUrl
+    ? getYouTubeEmbedUrl(selectedVideoUrl)
+    : null;
+  /*
+   * Check whether the selected lesson contains
+   * a YouTube URL.
+   */
+  const selectedVideoIsYouTube =
+    selectedVideoUrl
+      ? isYouTubeUrl(selectedVideoUrl)
+      : false;
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
       <div className="mx-auto max-w-6xl">
         {/* Back Button */}
-        <a
-          href="/dashboard/student/courses"
-          className="mb-6 inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-100"
+        <button
+          onClick={() =>
+            router.push("/dashboard/student/courses")
+          }
+          className="mb-6 inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
         >
           ← Back to My Courses
-        </a>
+        </button>
         {/* Course Header */}
         <div className="mb-8 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
           <p className="text-sm font-medium text-blue-600">
@@ -252,9 +384,10 @@ export default function StudentCoursePage() {
             {course.title}
           </h1>
           <p className="mt-2 text-gray-600">
-            {course.description || "Start learning this course."}
+            {course.description ||
+              "Start learning this course."}
           </p>
-          {/* Course Completed Message */}
+          {/* Course Completed */}
           {courseCompleted && (
             <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5">
               <div className="flex items-center gap-3">
@@ -266,14 +399,14 @@ export default function StudentCoursePage() {
                     Course Completed!
                   </h2>
                   <p className="text-sm text-green-700">
-                    Congratulations! You have completed all the lessons in
-                    this course.
+                    Congratulations! You have completed all
+                    the lessons in this course.
                   </p>
                 </div>
               </div>
             </div>
           )}
-          {/* Progress Bar */}
+          {/* Progress */}
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700">
@@ -302,7 +435,8 @@ export default function StudentCoursePage() {
               />
             </div>
             <p className="mt-2 text-sm text-gray-500">
-              {completedCount} of {lessons.length} lessons completed
+              {completedCount} of {lessons.length} lessons
+              completed
             </p>
           </div>
         </div>
@@ -322,7 +456,9 @@ export default function StudentCoursePage() {
                 {lessons.map((lesson, index) => (
                   <button
                     key={lesson.id}
-                    onClick={() => setSelectedLesson(lesson)}
+                    onClick={() =>
+                      setSelectedLesson(lesson)
+                    }
                     className={`w-full rounded-xl p-3 text-left transition ${
                       selectedLesson?.id === lesson.id
                         ? "bg-blue-50 ring-1 ring-blue-200"
@@ -366,19 +502,46 @@ export default function StudentCoursePage() {
                     {selectedLesson.description}
                   </p>
                 )}
-                {/* Video */}
+                {/* VIDEO */}
                 <div className="mt-6 overflow-hidden rounded-2xl bg-black">
-                  {selectedLesson.video_url ? (
-                    <video
-                      key={selectedLesson.video_url}
-                      src={selectedLesson.video_url}
-                      controls
-                      className="aspect-video w-full"
+                  {!selectedVideoUrl ? (
+                    <div className="flex aspect-video items-center justify-center text-white">
+                      <p>
+                        No video available for this lesson.
+                      </p>
+                    </div>
+                  ) : selectedVideoIsYouTube &&
+                    youtubeEmbedUrl ? (
+                    /*
+                     * DYNAMIC YOUTUBE VIDEO
+                     *
+                     * IMPORTANT:
+                     * This uses the URL stored in
+                     * selectedLesson.video_url.
+                     */
+                    <iframe
+                      key={selectedLesson.id}
+                      src={youtubeEmbedUrl}
+                      title={selectedLesson.title}
+                      className="block aspect-video w-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      referrerPolicy="strict-origin-when-cross-origin"
+                      allowFullScreen
                     />
                   ) : (
-                    <div className="flex aspect-video items-center justify-center text-white">
-                      <p>No video available for this lesson.</p>
-                    </div>
+                    /*
+                     * SUPABASE / DIRECT VIDEO
+                     */
+                    <video
+                      key={selectedLesson.id}
+                      src={selectedVideoUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="block aspect-video w-full"
+                    >
+                      Your browser does not support video playback.
+                    </video>
                   )}
                 </div>
                 {/* Complete Button */}
